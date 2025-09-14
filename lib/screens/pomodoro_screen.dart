@@ -7,10 +7,6 @@ class PomodoroScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pomodoro Timer'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-      ),
       body: const SafeArea(
         child: Center(
           child: TimerWidget(), // Pastikan widget timer berada di tengah

@@ -13,7 +13,7 @@ class _TimerWidgetState extends State<TimerWidget> {
   bool isWorking = true;
   int secondsRemaining = 0;
   List<String> sessionLogs = [];
-  String sessionTitle = 'Pomodoro Session'; // Default judul sesi
+  String sessionTitle = 'belajar bang'; // Default judul sesi
   bool isPaused = false; // Status apakah timer sedang dijeda
   bool isTimerStarted = false; // Status apakah timer sudah dimulai
 
@@ -36,7 +36,7 @@ class _TimerWidgetState extends State<TimerWidget> {
         });
         startTimer(); // Panggil kembali untuk melanjutkan timer
       } else if (secondsRemaining == 0 && isTimerStarted) {
-        _showProgressDialog(); // Tampilkan dialog progres jika waktu habis
+        _onTimerComplete(); // Panggil _onTimerComplete() jika waktu habis
       }
     });
   }
@@ -55,6 +55,26 @@ class _TimerWidgetState extends State<TimerWidget> {
       isTimerStarted = false; // Set status timer menjadi berhenti
       isPaused = false; // Reset status jeda
       secondsRemaining = isWorking ? workDuration * 60 : breakDuration * 60; // Reset waktu
+    });
+  }
+
+  void _onTimerComplete() {
+    if (!isWorking) {
+      // Jika sesi istirahat selesai
+      _resetToNextSession();
+      return;
+    }
+
+    // Jika sesi kerja selesai, tampilkan dialog progres
+    _showProgressDialog();
+  }
+
+  void _resetToNextSession() {
+    setState(() {
+      isTimerStarted = false;
+      isPaused = false;
+      isWorking = !isWorking;
+      secondsRemaining = (isWorking ? workDuration : breakDuration) * 60;
     });
   }
 
@@ -87,10 +107,8 @@ class _TimerWidgetState extends State<TimerWidget> {
     if (progress != null && progress.isNotEmpty && isTimerStarted) {
       setState(() {
         sessionLogs.add(progress);
-        isWorking = !isWorking;
-        secondsRemaining = (isWorking ? workDuration : breakDuration) * 60;
+        _resetToNextSession();
       });
-      startTimer();
     }
   }
 
