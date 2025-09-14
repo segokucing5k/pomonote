@@ -14,11 +14,39 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Pomodoro Timer',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green, // Warna dasar hijau
-          secondary: Colors.blue, // Warna aksen biru
+        brightness: Brightness.dark,
+        primaryColor: const Color(0xFF5DADE2),
+        scaffoldBackgroundColor: const Color(0xFF2C3E50),
+        colorScheme: const ColorScheme.dark(
+          primary: Color(0xFF5DADE2),
+          secondary: Color(0xFF5DADE2),
+          surface: Color(0xFF34495E),
+          background: Color(0xFF2C3E50),
         ),
-        useMaterial3: true, // Gunakan Material Design 3
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF34495E),
+          foregroundColor: Colors.white,
+        ),
+        cardTheme: const CardTheme(
+          color: Color(0xFF34495E),
+        ),
+        dialogTheme: const DialogTheme(
+          backgroundColor: Color(0xFF34495E),
+          titleTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+          contentTextStyle: TextStyle(
+            color: Colors.white,
+            fontSize: 16,
+          ),
+        ),
+        snackBarTheme: const SnackBarThemeData(
+          backgroundColor: Color(0xFF34495E),
+          contentTextStyle: TextStyle(color: Colors.white),
+        ),
+        useMaterial3: true,
       ),
       home: const PomodoroScreen(), // Ganti halaman utama menjadi PomodoroScreen
     );

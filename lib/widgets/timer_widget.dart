@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
+// Session types - moved outside the class
+enum SessionType { focus, shortBreak, longBreak }
+
 class TimerWidget extends StatefulWidget {
   const TimerWidget({super.key});
 
@@ -9,9 +12,10 @@ class TimerWidget extends StatefulWidget {
   State<TimerWidget> createState() => _TimerWidgetState();
 }
 
-class _TimerWidgetState extends State<TimerWidget> {
+class _TimerWidgetState extends State<TimerWidget> with TickerProviderStateMixin {
   int workDuration = 25; // Default waktu kerja (menit)
   int breakDuration = 5; // Default waktu istirahat (menit)
+  int longBreakDuration = 15; // Default waktu istirahat panjang (menit)
   bool isWorking = true;
   int secondsRemaining = 0;
   List<String> sessionLogs = [];
@@ -19,12 +23,68 @@ class _TimerWidgetState extends State<TimerWidget> {
   bool isPaused = false; // Status apakah timer sedang dijeda
   bool isTimerStarted = false; // Status apakah timer sudah dimulai
   List<Map<String, dynamic>> savedSessions = []; // Riwayat sesi yang tersimpan
+  late TabController _tabController;
+
+  SessionType currentSessionType = SessionType.focus;
 
   @override
   void initState() {
     super.initState();
     secondsRemaining = workDuration * 60;
-    _loadSavedSessions(); // Load riwayat sesi saat inisialisasi
+    _loadSavedSessions();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(_onTabChanged);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    // Hanya izinkan perubahan tab jika timer tidak sedang berjalan
+    if (!isTimerStarted && !isPaused) {
+      setState(() {
+        switch (_tabController.index) {
+          case 0:
+            currentSessionType = SessionType.focus;
+            isWorking = true;
+            secondsRemaining = workDuration * 60;
+            break;
+          case 1:
+            currentSessionType = SessionType.shortBreak;
+            isWorking = false;
+            secondsRemaining = breakDuration * 60;
+            break;
+          case 2:
+            currentSessionType = SessionType.longBreak;
+            isWorking = false;
+            secondsRemaining = longBreakDuration * 60;
+            break;
+        }
+      });
+    } else {
+      // Jika timer sedang berjalan, kembalikan ke tab yang sesuai dengan session saat ini
+      _updateTabController();
+    }
+  }
+
+  void _updateTabController() {
+    // Update tanpa trigger listener
+    _tabController.removeListener(_onTabChanged);
+    switch (currentSessionType) {
+      case SessionType.focus:
+        _tabController.animateTo(0);
+        break;
+      case SessionType.shortBreak:
+        _tabController.animateTo(1);
+        break;
+      case SessionType.longBreak:
+        _tabController.animateTo(2);
+        break;
+    }
+    _tabController.addListener(_onTabChanged);
   }
 
   void startTimer() {
@@ -77,9 +137,25 @@ class _TimerWidgetState extends State<TimerWidget> {
     setState(() {
       isTimerStarted = false;
       isPaused = false;
-      isWorking = !isWorking;
-      secondsRemaining = (isWorking ? workDuration : breakDuration) * 60;
+      
+      if (currentSessionType == SessionType.focus) {
+        // Setelah fokus, tentukan istirahat pendek atau panjang
+        if (sessionLogs.length > 0 && (sessionLogs.length + 1) % 4 == 0) {
+          currentSessionType = SessionType.longBreak;
+          secondsRemaining = longBreakDuration * 60;
+        } else {
+          currentSessionType = SessionType.shortBreak;
+          secondsRemaining = breakDuration * 60;
+        }
+        isWorking = false;
+      } else {
+        // Setelah istirahat, kembali ke fokus
+        currentSessionType = SessionType.focus;
+        isWorking = true;
+        secondsRemaining = workDuration * 60;
+      }
     });
+    _updateTabController();
   }
 
   void _showProgressDialog() async {
@@ -89,19 +165,39 @@ class _TimerWidgetState extends State<TimerWidget> {
       builder: (context) {
         String tempProgress = '';
         return AlertDialog(
-          title: const Text('Catat Progres'),
+          backgroundColor: const Color(0xFF34495E),
+          title: const Text(
+            'Catat Progres',
+            style: TextStyle(color: Colors.white),
+          ),
           content: TextField(
             onChanged: (value) => tempProgress = value,
-            decoration: const InputDecoration(hintText: 'Apa yang sudah Anda kerjakan?'),
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'Apa yang sudah Anda kerjakan?',
+              hintStyle: TextStyle(color: Colors.grey),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF5DADE2)),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFF5DADE2)),
+              ),
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(null),
-              child: const Text('Batal'),
+              child: const Text(
+                'Batal',
+                style: TextStyle(color: Colors.grey),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(tempProgress),
-              child: const Text('Simpan'),
+              child: const Text(
+                'Simpan',
+                style: TextStyle(color: Color(0xFF5DADE2)),
+              ),
             ),
           ],
         );
@@ -119,39 +215,93 @@ class _TimerWidgetState extends State<TimerWidget> {
   void _showSettingsDialog() async {
     int tempWorkDuration = workDuration;
     int tempBreakDuration = breakDuration;
+    int tempLongBreakDuration = longBreakDuration;
     String tempSessionTitle = sessionTitle;
 
     await showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Pengaturan Sesi'),
+          backgroundColor: const Color(0xFF34495E),
+          title: const Text(
+            'Pengaturan Sesi',
+            style: TextStyle(color: Colors.white),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
-                decoration: const InputDecoration(labelText: 'Judul Sesi'),
+                decoration: const InputDecoration(
+                  labelText: 'Judul Sesi',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
                 onChanged: (value) => tempSessionTitle = value,
                 controller: TextEditingController(text: sessionTitle),
               ),
               TextField(
-                decoration: const InputDecoration(labelText: 'Durasi Kerja (menit)'),
+                decoration: const InputDecoration(
+                  labelText: 'Durasi Fokus (menit)',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
                 keyboardType: TextInputType.number,
                 onChanged: (value) => tempWorkDuration = int.tryParse(value) ?? workDuration,
                 controller: TextEditingController(text: workDuration.toString()),
               ),
               TextField(
-                decoration: const InputDecoration(labelText: 'Durasi Istirahat (menit)'),
+                decoration: const InputDecoration(
+                  labelText: 'Durasi Istirahat Pendek (menit)',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
                 keyboardType: TextInputType.number,
                 onChanged: (value) => tempBreakDuration = int.tryParse(value) ?? breakDuration,
                 controller: TextEditingController(text: breakDuration.toString()),
+              ),
+              TextField(
+                decoration: const InputDecoration(
+                  labelText: 'Durasi Istirahat Panjang (menit)',
+                  labelStyle: TextStyle(color: Colors.grey),
+                  enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                  focusedBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF5DADE2)),
+                  ),
+                ),
+                style: const TextStyle(color: Colors.white),
+                keyboardType: TextInputType.number,
+                onChanged: (value) => tempLongBreakDuration = int.tryParse(value) ?? longBreakDuration,
+                controller: TextEditingController(text: longBreakDuration.toString()),
               ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Batal'),
+              child: const Text(
+                'Batal',
+                style: TextStyle(color: Colors.grey),
+              ),
             ),
             TextButton(
               onPressed: () {
@@ -159,11 +309,27 @@ class _TimerWidgetState extends State<TimerWidget> {
                   sessionTitle = tempSessionTitle;
                   workDuration = tempWorkDuration;
                   breakDuration = tempBreakDuration;
-                  secondsRemaining = workDuration * 60;
+                  longBreakDuration = tempLongBreakDuration;
+                  
+                  // Update current session time based on current type
+                  switch (currentSessionType) {
+                    case SessionType.focus:
+                      secondsRemaining = workDuration * 60;
+                      break;
+                    case SessionType.shortBreak:
+                      secondsRemaining = breakDuration * 60;
+                      break;
+                    case SessionType.longBreak:
+                      secondsRemaining = longBreakDuration * 60;
+                      break;
+                  }
                 });
                 Navigator.of(context).pop();
               },
-              child: const Text('Simpan'),
+              child: const Text(
+                'Simpan',
+                style: TextStyle(color: Color(0xFF5DADE2)),
+              ),
             ),
           ],
         );
@@ -200,35 +366,60 @@ class _TimerWidgetState extends State<TimerWidget> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Akhiri Sesi Kerja'),
+          backgroundColor: const Color(0xFF34495E),
+          title: const Text(
+            'Akhiri Sesi Kerja',
+            style: TextStyle(color: Colors.white),
+          ),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Judul: $sessionTitle'),
+              Text(
+                'Judul: $sessionTitle',
+                style: const TextStyle(color: Colors.white),
+              ),
               const SizedBox(height: 8),
-              Text('Total sesi selesai: ${sessionLogs.length}'),
+              Text(
+                'Total sesi selesai: ${sessionLogs.length}',
+                style: const TextStyle(color: Colors.white),
+              ),
               const SizedBox(height: 8),
-              const Text('Progres yang dicatat:'),
+              const Text(
+                'Progres yang dicatat:',
+                style: TextStyle(color: Colors.white),
+              ),
               const SizedBox(height: 4),
               ...sessionLogs.asMap().entries.map((entry) => 
                 Padding(
                   padding: const EdgeInsets.only(left: 8.0, bottom: 4.0),
-                  child: Text('${entry.key + 1}. ${entry.value}'),
+                  child: Text(
+                    '${entry.key + 1}. ${entry.value}',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
                 )
               ),
               const SizedBox(height: 16),
-              const Text('Simpan sesi ini ke riwayat?'),
+              const Text(
+                'Simpan sesi ini ke riwayat?',
+                style: TextStyle(color: Colors.white),
+              ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Batal'),
+              child: const Text(
+                'Batal',
+                style: TextStyle(color: Colors.grey),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Simpan & Akhiri'),
+              child: const Text(
+                'Simpan & Akhiri',
+                style: TextStyle(color: Color(0xFF5DADE2)),
+              ),
             ),
           ],
         );
@@ -270,9 +461,16 @@ class _TimerWidgetState extends State<TimerWidget> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Riwayat Sesi'),
+          backgroundColor: const Color(0xFF34495E),
+          title: const Text(
+            'Riwayat Sesi',
+            style: TextStyle(color: Colors.white),
+          ),
           content: savedSessions.isEmpty 
-            ? const Text('Belum ada riwayat sesi')
+            ? const Text(
+                'Belum ada riwayat sesi',
+                style: TextStyle(color: Colors.grey),
+              )
             : SizedBox(
                 width: double.maxFinite,
                 height: 400,
@@ -282,17 +480,26 @@ class _TimerWidgetState extends State<TimerWidget> {
                     final session = savedSessions[index];
                     final date = DateTime.parse(session['date']);
                     return Card(
+                      color: const Color(0xFF2C3E50),
                       margin: const EdgeInsets.symmetric(vertical: 4),
                       child: ExpansionTile(
-                        title: Text(session['title']),
-                        subtitle: Text(
-                          '${date.day}/${date.month}/${date.year} - ${session['totalSessions']} sesi'
+                        title: Text(
+                          session['title'],
+                          style: const TextStyle(color: Colors.white),
                         ),
+                        subtitle: Text(
+                          '${date.day}/${date.month}/${date.year} - ${session['totalSessions']} sesi',
+                          style: const TextStyle(color: Colors.grey),
+                        ),
+                        iconColor: const Color(0xFF5DADE2),
                         children: [
                           ...((session['logs'] as List).asMap().entries.map((entry) =>
                             ListTile(
                               dense: true,
-                              title: Text('Sesi ${entry.key + 1}: ${entry.value}'),
+                              title: Text(
+                                'Sesi ${entry.key + 1}: ${entry.value}',
+                                style: const TextStyle(color: Colors.grey),
+                              ),
                             )
                           )),
                         ],
@@ -304,7 +511,10 @@ class _TimerWidgetState extends State<TimerWidget> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Tutup'),
+              child: const Text(
+                'Tutup',
+                style: TextStyle(color: Color(0xFF5DADE2)),
+              ),
             ),
           ],
         );
@@ -316,166 +526,284 @@ class _TimerWidgetState extends State<TimerWidget> {
   Widget build(BuildContext context) {
     final minutes = (secondsRemaining ~/ 60).toString().padLeft(2, '0');
     final seconds = (secondsRemaining % 60).toString().padLeft(2, '0');
+    
+    int totalSeconds;
+    switch (currentSessionType) {
+      case SessionType.focus:
+        totalSeconds = workDuration * 60;
+        break;
+      case SessionType.shortBreak:
+        totalSeconds = breakDuration * 60;
+        break;
+      case SessionType.longBreak:
+        totalSeconds = longBreakDuration * 60;
+        break;
+    }
+    
+    final progress = (totalSeconds - secondsRemaining) / totalSeconds;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Flexible(
-                child: Text(
-                  sessionTitle,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: Colors.black87,
-                        fontWeight: FontWeight.bold,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF2C3E50), Color(0xFF34495E)],
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: MediaQuery.of(context).size.height - 
+                          MediaQuery.of(context).padding.top - 
+                          MediaQuery.of(context).padding.bottom,
               ),
-              const SizedBox(height: 20),
-              Flexible(
-                child: Text(
-                  isWorking ? 'Waktu Kerja' : 'Waktu Istirahat',
-                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                        color: isWorking ? Colors.green : Colors.blue,
-                        fontWeight: FontWeight.bold,
-                      ),
-                  textAlign: TextAlign.center,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Flexible(
-                child: Container(
-                  width: constraints.maxWidth * 0.6, // Sesuaikan ukuran dengan layar
-                  padding: const EdgeInsets.all(16.0),
-                  decoration: BoxDecoration(
-                    color: isWorking ? Colors.green[100] : Colors.blue[100],
-                    borderRadius: BorderRadius.circular(16.0),
-                  ),
-                  child: Text(
-                    '$minutes:$seconds',
-                    style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                          color: isWorking ? Colors.green[800] : Colors.blue[800],
+              child: IntrinsicHeight(
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Column(
+                    children: [
+                      // Title
+                      Text(
+                        sessionTitle,
+                        style: const TextStyle(
+                          color: Color(0xFF5DADE2),
+                          fontSize: 28,
                           fontWeight: FontWeight.bold,
                         ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
-              if (!isTimerStarted)
-                Flexible(
-                  child: ElevatedButton(
-                    onPressed: startTimer,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                    ),
-                    child: const Text(
-                      'Mulai',
-                      style: TextStyle(fontSize: 18),
-                    ),
-                  ),
-                )
-              else
-                Flexible(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      ElevatedButton(
-                        onPressed: pauseOrResumeTimer,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.orange,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                        textAlign: TextAlign.center,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      
+                      const SizedBox(height: 30),
+                      
+                      // Tab Bar
+                      Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF34495E),
+                          borderRadius: BorderRadius.circular(25),
                         ),
-                        child: Text(
-                          isPaused ? 'Lanjutkan' : 'Jeda',
-                          style: const TextStyle(fontSize: 16),
+                        child: AbsorbPointer(
+                          absorbing: isTimerStarted || isPaused, // Disable tab switching saat timer berjalan
+                          child: TabBar(
+                            controller: _tabController,
+                            indicator: BoxDecoration(
+                              color: const Color(0xFF5DADE2),
+                              borderRadius: BorderRadius.circular(25),
+                            ),
+                            indicatorSize: TabBarIndicatorSize.tab,
+                            dividerColor: Colors.transparent,
+                            labelColor: Colors.white,
+                            unselectedLabelColor: (isTimerStarted || isPaused) 
+                              ? Colors.grey[600] // Warna lebih gelap saat disabled
+                              : Colors.grey[400],
+                            labelStyle: TextStyle(
+                              fontSize: 12,
+                              fontWeight: (isTimerStarted || isPaused) 
+                                ? FontWeight.bold 
+                                : FontWeight.normal,
+                            ),
+                            tabs: [
+                              Tab(
+                                child: Text(
+                                  'Fokus',
+                                  style: TextStyle(
+                                    color: (isTimerStarted || isPaused) && currentSessionType == SessionType.focus
+                                      ? Colors.white
+                                      : null,
+                                  ),
+                                ),
+                              ),
+                              Tab(
+                                child: Text(
+                                  'Istirahat Pendek',
+                                  style: TextStyle(
+                                    color: (isTimerStarted || isPaused) && currentSessionType == SessionType.shortBreak
+                                      ? Colors.white
+                                      : null,
+                                  ),
+                                ),
+                              ),
+                              Tab(
+                                child: Text(
+                                  'Istirahat Panjang',
+                                  style: TextStyle(
+                                    color: (isTimerStarted || isPaused) && currentSessionType == SessionType.longBreak
+                                      ? Colors.white
+                                      : null,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(width: 16),
-                      ElevatedButton(
-                        onPressed: stopTimer,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        ),
-                        child: const Text(
-                          'Berhenti',
-                          style: TextStyle(fontSize: 16),
+                      
+                      const SizedBox(height: 40),
+                      
+                      // Circular Timer
+                      SizedBox(
+                        width: 250,
+                        height: 250,
+                        child: Stack(
+                          children: [
+                            // Background circle
+                            Container(
+                              width: 250,
+                              height: 250,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFF34495E),
+                                  width: 8,
+                                ),
+                              ),
+                            ),
+                            // Progress circle
+                            SizedBox(
+                              width: 250,
+                              height: 250,
+                              child: CircularProgressIndicator(
+                                value: isTimerStarted ? progress : 0,
+                                strokeWidth: 8,
+                                backgroundColor: Colors.transparent,
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                  Color(0xFF5DADE2),
+                                ),
+                              ),
+                            ),
+                            // Timer text
+                            Center(
+                              child: Text(
+                                '$minutes:$seconds',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 56,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      
+                      const SizedBox(height: 40),
+                      
+                      // Start/Control Button
+                      if (!isTimerStarted)
+                        Container(
+                          width: double.infinity,
+                          margin: const EdgeInsets.symmetric(horizontal: 20),
+                          child: ElevatedButton(
+                            onPressed: startTimer,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF5DADE2),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 18),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(30),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: const Text(
+                              'MULAI',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 2,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            ElevatedButton(
+                              onPressed: pauseOrResumeTimer,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.orange,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                ),
+                              ),
+                              child: Text(isPaused ? 'Lanjutkan' : 'Jeda'),
+                            ),
+                            ElevatedButton(
+                              onPressed: stopTimer,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.red,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 12),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(25),
+                                ),
+                              ),
+                              child: const Text('Berhenti'),
+                            ),
+                          ],
+                        ),
+                      
+                      const Spacer(),
+                      
+                      // Bottom buttons
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          TextButton(
+                            onPressed: _showSettingsDialog,
+                            child: const Text(
+                              'Pengaturan',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _showSessionHistory,
+                            child: const Text(
+                              'Riwayat',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      
+                      // End Work button (only show if there are sessions)
+                      if (sessionLogs.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 5),
+                          child: TextButton(
+                            onPressed: _endWorkSession,
+                            child: const Text(
+                              'Akhiri Kerja',
+                              style: TextStyle(
+                                color: Colors.purple,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      
+                      const SizedBox(height: 10),
                     ],
                   ),
                 ),
-              const SizedBox(height: 20),
-              Flexible(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.center,
-                  children: [
-                    ElevatedButton(
-                      onPressed: _showSettingsDialog,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.grey[700],
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
-                      child: const Text(
-                        'Pengaturan',
-                        style: TextStyle(fontSize: 14, color: Colors.white),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: sessionLogs.isNotEmpty ? _endWorkSession : null,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.purple,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
-                      child: const Text(
-                        'Akhiri Kerja',
-                        style: TextStyle(fontSize: 14, color: Colors.white),
-                      ),
-                    ),
-                    ElevatedButton(
-                      onPressed: _showSessionHistory,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.indigo,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      ),
-                      child: const Text(
-                        'Riwayat',
-                        style: TextStyle(fontSize: 14, color: Colors.white),
-                      ),
-                    ),
-                  ],
-                ),
               ),
-              const SizedBox(height: 20),
-              if (sessionLogs.isNotEmpty)
-                Flexible(
-                  flex: 2,
-                  child: ListView.builder(
-                    itemCount: sessionLogs.length,
-                    itemBuilder: (context, index) => Card(
-                      color: Colors.green[50],
-                      margin: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: ListTile(
-                        title: Text(
-                          'Sesi ${index + 1}',
-                          style: TextStyle(color: Colors.green[800]),
-                        ),
-                        subtitle: Text(sessionLogs[index]),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
